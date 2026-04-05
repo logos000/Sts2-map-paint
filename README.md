@@ -12,7 +12,7 @@
 
 ## 下载与安装
 
-1. 打开 [**Releases**](https://github.com/logos000/Sts2-map-paint/releases)，下载对应版本的 **`map_paint.zip`**（该包**不在** Git 仓库内，仅随 Release 提供）。
+1. 打开 [**Releases**](https://github.com/logos000/Sts2-map-paint/releases)，下载对应版本的 **`map_paint.zip`**。
 2. 解压到游戏目录下的 `mods` 文件夹，使存在路径：  
    `…/Slay the Spire 2/mods/map_paint/map_paint.dll` 与 `map_paint.json` 等。
 3. 确保已安装 **BaseLib**，再启动游戏。
@@ -37,11 +37,12 @@
 
 ## 许可证
 
-如无另行说明，默认保留所有权利；若你希望使用开源协议，可自行补充 `LICENSE` 文件。
+本项目以 [**MIT License**](LICENSE) 发布。
 
 ---
 
 ## Map Paint (English summary)
 
 Mod for **Slay the Spire 2** that imports an image and redraws it on the map using the game’s drawing system.  
-**Requires BaseLib.** Install from **Releases** by extracting the zip into the game’s `mods` folder. The prebuilt **`map_paint.zip`** is attached to releases only and is **not** stored in this repository.
+**Requires BaseLib.** Install from **Releases** by extracting the zip into the game’s `mods` folder.  
+Licensed under the [MIT License](LICENSE).
