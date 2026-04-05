@@ -1,0 +1,7 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# StrokePreview 辅助工具构建输出
+StrokePreview/bin/
+StrokePreview/obj/
