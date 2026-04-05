@@ -14,7 +14,10 @@ internal readonly record struct MapAutoPaintResult(bool Success, string Message)
 
 internal static class MapAutoPainter
 {
-    public static MapAutoPaintResult TryApply(NMapScreen? mapScreen)
+    /// <summary>
+    /// 直接 <see cref="NMapDrawings.LoadDrawings"/>，仅适合参数预览（滑块），联机队友通常看不到。
+    /// </summary>
+    public static MapAutoPaintResult TryApplyLocal(NMapScreen? mapScreen)
     {
         if (mapScreen is null)
         {
@@ -48,6 +51,60 @@ internal static class MapAutoPainter
         return new MapAutoPaintResult(
             true,
             $"已导入 {drawings.drawings.Sum(player => player.lines.Count)} 条线条，来自 {Path.GetFileName(imagePath)}。");
+    }
+
+    /// <summary>
+    /// 通过模拟鼠标事件逐笔绘制（联机同步）。开始前会清空画布；期间会暂时隐藏本面板。
+    /// </summary>
+    public static bool TryBeginSimulatedPaint(
+        NMapScreen? mapScreen,
+        MapImportPanelLayer uiLayer,
+        Action<MapAutoPaintResult> onComplete)
+    {
+        if (mapScreen is null)
+        {
+            onComplete(new MapAutoPaintResult(false, "地图界面不可用。"));
+            return false;
+        }
+
+        var settings = MapPaintSettings.Load();
+        var imagePath = settings.ResolveImagePath();
+        if (string.IsNullOrWhiteSpace(imagePath) || !Godot.FileAccess.FileExists(imagePath))
+        {
+            Log.Debug($"MapAutoPainter: image path is empty or missing: {imagePath}");
+            onComplete(new MapAutoPaintResult(
+                false,
+                "未选择图片，请将图片放入图库文件夹后用翻页选择。"));
+            return false;
+        }
+
+        var strokes = ImageStrokeExtractor.Extract(imagePath, settings);
+        if (strokes.Count == 0)
+        {
+            onComplete(new MapAutoPaintResult(false, "未能从图片中提取到可绘制的笔画。"));
+            return false;
+        }
+
+        var polylines = MapToScreenPolylines(mapScreen, strokes, settings);
+        if (polylines.Count == 0)
+        {
+            onComplete(new MapAutoPaintResult(false, "没有可绘制的线段。"));
+            return false;
+        }
+
+        mapScreen.Drawings.ClearAllLines();
+        uiLayer.Visible = false;
+        var driver = new MapPaintInputDriver();
+        uiLayer.AddChild(driver);
+        driver.Start(
+            mapScreen,
+            polylines,
+            settings,
+            uiLayer,
+            polylines.Count,
+            onComplete);
+        ModLog.Info($"MapAutoPainter: simulated paint started, {polylines.Count} polylines.");
+        return true;
     }
 
     private static SerializableMapDrawings BuildDrawings(
@@ -100,7 +157,8 @@ internal static class MapAutoPainter
         return null;
     }
 
-    private static IEnumerable<Vector2[]> MapToNetSpace(
+    /// <summary>地图控件本地坐标下的折线（与玩家鼠标同一套坐标系）。</summary>
+    private static List<Vector2[]> MapToScreenPolylines(
         NMapScreen mapScreen,
         IReadOnlyList<Vector2[]> strokes,
         MapPaintSettings settings)
@@ -137,10 +195,29 @@ internal static class MapAutoPainter
                      - new Vector2(bounds.Position.X * sx, bounds.Position.Y * sy)
                      + new Vector2(settings.OffsetX, settings.OffsetY);
 
+        var list = new List<Vector2[]>();
         foreach (var stroke in strokes)
         {
-            yield return stroke
+            list.Add(stroke
                 .Select(point => offset + new Vector2(point.X * sx, point.Y * sy))
+                .ToArray());
+        }
+
+        return list;
+    }
+
+    private static IEnumerable<Vector2[]> MapToNetSpace(
+        NMapScreen mapScreen,
+        IReadOnlyList<Vector2[]> strokes,
+        MapPaintSettings settings)
+    {
+        var screenPolylines = MapToScreenPolylines(mapScreen, strokes, settings);
+        var drawings = mapScreen.Drawings;
+        var drawingsInv = drawings.GetGlobalTransformWithCanvas().Inverse();
+
+        foreach (var stroke in screenPolylines)
+        {
+            yield return stroke
                 .Select(screenPos => ScreenToDrawingsNet(drawings, drawingsInv, screenPos))
                 .ToArray();
         }

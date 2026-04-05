@@ -115,6 +115,7 @@ internal partial class MapImportPanelLayer : CanvasLayer
     private Vector2 _resizeStartPos;
     private float _resizeStartWidth;
     private Edge _resizeEdges;
+    private bool _simulatedPaintInProgress;
 
     public MapImportPanelLayer()
     {
@@ -328,7 +329,7 @@ internal partial class MapImportPanelLayer : CanvasLayer
 
         var title = new Label
         {
-            Text = "地图绘制 v1.0.1",
+            Text = "地图绘制 v1.0.2",
             MouseFilter = Control.MouseFilterEnum.Ignore,
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
         };
@@ -939,8 +940,13 @@ internal partial class MapImportPanelLayer : CanvasLayer
 
     private void OnImportPressed()
     {
-        var r = MapAutoPainter.TryApply(NMapScreen.Instance);
-        Refresh(r.Message);
+        if (!MapAutoPainter.TryBeginSimulatedPaint(NMapScreen.Instance, this, r =>
+            {
+                _simulatedPaintInProgress = false;
+                Refresh(r.Message);
+            }))
+            return;
+        _simulatedPaintInProgress = true;
     }
 
     private void OnDetailUp() => AdjustDetail(128);
@@ -1089,7 +1095,9 @@ internal partial class MapImportPanelLayer : CanvasLayer
 
     private void AutoRedraw()
     {
-        var r = MapAutoPainter.TryApply(NMapScreen.Instance);
+        if (_simulatedPaintInProgress)
+            return;
+        var r = MapAutoPainter.TryApplyLocal(NMapScreen.Instance);
         if (!string.IsNullOrWhiteSpace(r.Message))
             Refresh(r.Message);
     }

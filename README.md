@@ -35,20 +35,14 @@
 
 ---
 
-## 联机：为什么队友有时看不到你「一键导入」的画？
+## 联机可见（绘制按钮）
 
-本模组在点击「绘制」时，会在内部把线稿整理成存档结构，并调用游戏的 **`LoadDrawings`**，相当于**一次性把线条写进本地地图画布**。这条路径**不会**走玩家用笔在屏幕上移动、按下、拖动时才会触发的**输入与联机同步流程**，因此**联机队友往往看不到**这次导入结果（你本机能看到，是因为本地 UI 已更新）。
+点击 **「绘制」** 时，模组会通过 **`Viewport.PushInput`** 按顺序注入**左键按下 → 移动 → 抬起**，走与真实鼠标画笔相同的输入路径，便于**联机同步**（思路与 [auto-painter-win](https://github.com/PIPIKAI/auto-painter-win)、[SlayTheSpire2AutoDrawing](https://github.com/FugerQingliu/SlayTheSpire2AutoDrawing) 等**外部位图工具**一致：让游戏收到「像在画画」的事件）。
 
-社区里常见的「别人也能看见」的做法，是让游戏**以为**有人在真实操作鼠标画笔，例如：
+- **请先切换到地图上的「画笔」模式**，再点「绘制」；绘制过程中面板会暂时隐藏，**请勿操作鼠标**，直至状态提示完成。
+- 调整参数滑块时的**即时预览**仍使用 **`LoadDrawings`**（仅本机快速预览）；联机队友看到的是你**最后一次点「绘制」**模拟画上去的内容。
 
-| 项目 | 思路（与联机的关系） |
-|------|----------------------|
-| [**PIPIKAI/auto-painter-win**](https://github.com/PIPIKAI/auto-painter-win) | 独立桌面程序：用 PyQt 做线稿预览，**自动绘画**通过 `pyautogui` 等去**真的移动、点击鼠标**，在地图画布上逐段绘制。游戏只收到和普通玩家一样的指针事件，因此会按官方逻辑同步。 |
-| [**FugerQingliu/SlayTheSpire2AutoDrawing**](https://github.com/FugerQingliu/SlayTheSpire2AutoDrawing) | 外部脚本 / 可执行文件：同样是在系统层面**模拟鼠标**在窗口内绘画，不注入游戏内存里的 `LoadDrawings`，走的是**真实输入**那条路。 |
-
-**若你需要联机展示给别人看**：更稳妥的是用上述一类**外部位图绘画工具**（或自己手写鼠标宏），在地图界面里按笔划慢慢画；本模组更适合**单机快速把整张图铺进地图**或本机预览。
-
-> 将来若在游戏内用模组逐点**模拟输入事件**或找到与官方画笔共用的**网络同步 API**，理论上也能对齐联机表现，但需要针对版本逆向与维护，当前实现未包含这一条。
+若模拟绘制在某一游戏版本上坐标或输入不生效，可反馈版本号；也可继续使用上述外部工具作为备选。
 
 ---
 
@@ -63,6 +57,6 @@
 Mod for **Slay the Spire 2** that imports an image and redraws it on the map using the game’s drawing system.  
 **Requires BaseLib.** Install from **Releases** by extracting the zip into the game’s `mods` folder.  
 
-**Multiplayer note:** this mod bulk-loads strokes via `LoadDrawings` (local state). It does **not** replay pen input, so co-op peers may not see it. Tools like [auto-painter-win](https://github.com/PIPIKAI/auto-painter-win) or [SlayTheSpire2AutoDrawing](https://github.com/FugerQingliu/SlayTheSpire2AutoDrawing) drive the **real mouse** so the game syncs strokes normally.
+**Multiplayer:** the **Draw** button injects mouse events via `Viewport.PushInput` so strokes replicate like real pen input. Slider preview still uses `LoadDrawings` (local only). Have the in-game **brush** tool selected before drawing.
 
 Licensed under the [MIT License](LICENSE).
