@@ -31,18 +31,10 @@
 ## 功能概要
 
 - 在地图界面导入图库中的图片，按可调参数提取笔画并绘制到地图上。
-- **移动端**：可通过本机 HTTP 服务在浏览器中上传图片至图库（详见游戏内说明）。
-
----
-
-## 联机可见（绘制按钮）
-
-点击 **「绘制」** 时，模组会通过 **`Viewport.PushInput`** 按顺序注入**左键按下 → 移动 → 抬起**，走与真实鼠标画笔相同的输入路径，便于**联机同步**（思路与 [auto-painter-win](https://github.com/PIPIKAI/auto-painter-win)、[SlayTheSpire2AutoDrawing](https://github.com/FugerQingliu/SlayTheSpire2AutoDrawing) 等**外部位图工具**一致：让游戏收到「像在画画」的事件）。
-
-- **请先切换到地图上的「画笔」模式**，再点「绘制」；绘制过程中面板会暂时隐藏，**请勿操作鼠标**，直至状态提示完成。
-- 调整参数滑块时的**即时预览**仍使用 **`LoadDrawings`**（仅本机快速预览）；联机队友看到的是你**最后一次点「绘制」**模拟画上去的内容。
-
-若模拟绘制在某一游戏版本上坐标或输入不生效，可反馈版本号；也可继续使用上述外部工具作为备选。
+- **联机可见**：点击「开始绘制」后，模组直接调用游戏 `NMapDrawings` 的 Local API（`BeginLineLocal` / `UpdateCurrentLinePositionLocal` / `StopLineLocal`）按帧逐笔推进，内部自动发送联机消息，队友实时可见。无需模拟鼠标/触摸事件。
+- **F5 快捷键**：随时按 F5 切换开始/停止绘制。停止时自动保存断点（`config/map_paint.playback.json`），下次在相同图片与参数下可续画。
+- **本地预览**：缩放行旁的「预览」按钮使用 `LoadDrawings` 快速加载线稿（仅本机可见，不走联机同步），方便调参时即时查看效果。
+- **移动端（Android / iOS）**：上传图片通过本机 HTTP 服务在浏览器中完成（详见游戏内说明）。
 
 ---
 
@@ -54,9 +46,7 @@
 
 ## Map Paint (English summary)
 
-Mod for **Slay the Spire 2** that imports an image and redraws it on the map using the game’s drawing system.  
-**Requires BaseLib.** Install from **Releases** by extracting the zip into the game’s `mods` folder.  
-
-**Multiplayer:** the **Draw** button injects mouse events via `Viewport.PushInput` so strokes replicate like real pen input. Slider preview still uses `LoadDrawings` (local only). Have the in-game **brush** tool selected before drawing.
-
+Mod for **Slay the Spire 2** that imports an image and redraws it on the map using the game's drawing system.  
+**Multiplayer-visible:** strokes are drawn via the game's native `NMapDrawings` Local API, so teammates see them in real time.  
+**Requires BaseLib.** Install from **Releases** by extracting the zip into the game's `mods` folder.  
 Licensed under the [MIT License](LICENSE).

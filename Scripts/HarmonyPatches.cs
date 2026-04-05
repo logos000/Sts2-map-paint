@@ -1,5 +1,4 @@
 using HarmonyLib;
-using Godot;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 
 namespace cielo.Scripts;
@@ -34,11 +33,3 @@ internal static class NMapScreenClosePatch
     }
 }
 
-[HarmonyPatch(typeof(NMapDrawings), "_Ready")]
-internal static class NMapDrawingsReadyPatch
-{
-    private static void Postfix(NMapDrawings __instance)
-    {
-        ModLog.Info("Harmony postfix hit: NMapDrawings._Ready");
-    }
-}

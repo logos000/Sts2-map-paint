@@ -3,7 +3,7 @@
   "name": "Map Paint - 地图绘制",
   "author": "cielo",
   "description": "将图片导入并使用游戏内置绘图系统在地图上重新绘制。Import an image and redraw it on the map using the game's built-in drawing system.",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "has_pck": true,
   "has_dll": true,
   "dependencies": ["BaseLib"],

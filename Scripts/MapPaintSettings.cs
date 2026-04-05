@@ -30,7 +30,8 @@ internal sealed class MapPaintSettings
     public float SimplifyTolerance { get; set; } = 0.5f;
     public int SmoothSubdivisions { get; set; } = 8;
     public float ViewPadding { get; set; } = 80f;
-    public int PointsPerFrame { get; set; } = 24;
+    /// <summary>自动绘制时每帧推进的笔画顶点数；越大越快。</summary>
+    public int PointsPerFrame { get; set; } = 512;
     public float DrawScale { get; set; } = 0.8f;
     public float OffsetX { get; set; }
     public float OffsetY { get; set; }
@@ -46,8 +47,42 @@ internal sealed class MapPaintSettings
     /// <summary>地图绘制面板是否展开「高级设置」区块。</summary>
     public bool ShowAdvancedPanel { get; set; }
 
+    /// <summary>自动绘制开始后多少毫秒内不响应「玩家暂停」检测，避免与首帧注入抢判。</summary>
+    public int PlaybackPauseGraceMs { get; set; } = 900;
+
+    /// <summary>相对位移超过此值（像素）才视为「明显移动」，用于忽略桌面微震等抖动。</summary>
+    public float PlaybackPauseMotionThresholdPx { get; set; } = 56f;
+
+    /// <summary>达到确认次数后，再延迟多少毫秒才真正暂停（防抖）。</summary>
+    public int PlaybackPauseDebounceMs { get; set; } = 650;
+
+    /// <summary>明显移动计数窗口：超过此时间未继续移动则重新计数。</summary>
+    public int PlaybackPauseMotionWindowMs { get; set; } = 3500;
+
+    /// <summary>在窗口内需累计多少次「明显移动」才进入防抖暂停（建议 3，避免误停）。</summary>
+    public int PlaybackPauseMotionConfirmCount { get; set; } = 3;
+
+    /// <summary>非左键按住超过此毫秒才视为要暂停；左键不参与（与模拟左键绘画区分）。</summary>
+    public int PlaybackPauseButtonHoldMs { get; set; } = 950;
+
+    /// <summary>为 true 时仅能通过 F5/「停止绘制」结束自动画，指针移动等不再自动暂停。</summary>
+    public bool PlaybackStopOnlyWithHotkey { get; set; } = true;
+
+
     public static string ConfigPath =>
         Path.Combine(GetModDirectoryPath(), "config", "map_paint.settings.txt");
+
+    private static readonly JsonSerializerOptions ReadOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true,
+    };
+
+    private static readonly JsonSerializerOptions WriteOptions = new()
+    {
+        WriteIndented = true,
+    };
 
     public static MapPaintSettings Load()
     {
@@ -62,16 +97,17 @@ internal sealed class MapPaintSettings
         try
         {
             var json = File.ReadAllText(path);
-            var settings = JsonSerializer.Deserialize<MapPaintSettings>(
-                json,
-                new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true,
-                    ReadCommentHandling = JsonCommentHandling.Skip,
-                    AllowTrailingCommas = true,
-                });
+            var settings = JsonSerializer.Deserialize<MapPaintSettings>(json, ReadOptions);
 
-            return settings ?? new MapPaintSettings();
+            var s = settings ?? new MapPaintSettings();
+            if (s.PlaybackPauseMotionConfirmCount < 2)
+            {
+                s.PlaybackPauseMotionConfirmCount = 3;
+            }
+
+            s.PointsPerFrame = Math.Clamp(s.PointsPerFrame, 8, 512);
+
+            return s;
         }
         catch (Exception ex)
         {
@@ -85,12 +121,7 @@ internal sealed class MapPaintSettings
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
-            var json = JsonSerializer.Serialize(
-                this,
-                new JsonSerializerOptions
-                {
-                    WriteIndented = true,
-                });
+            var json = JsonSerializer.Serialize(this, WriteOptions);
             File.WriteAllText(ConfigPath, json);
         }
         catch (Exception ex)

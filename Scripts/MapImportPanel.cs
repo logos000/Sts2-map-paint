@@ -62,6 +62,18 @@ internal static class MapImportPanel
             ? tree.Root.GetNodeOrNull<MapImportPanelLayer>(LayerName)
             : null;
     }
+
+    public static void NotifyHotkeyStartPlayback()
+    {
+        var r = MapStrokeInputPlayback.TryStart(NMapScreen.Instance);
+        TryRefresh(NMapScreen.Instance, r.Message);
+    }
+
+    public static void NotifyHotkeyStopPlayback()
+    {
+        var r = MapStrokeInputPlayback.TryStop(saveProgress: true);
+        TryRefresh(NMapScreen.Instance, r.Message);
+    }
 }
 
 internal partial class MapImportPanelLayer : CanvasLayer
@@ -72,6 +84,7 @@ internal partial class MapImportPanelLayer : CanvasLayer
     private static readonly Color TextPrimary = new(1f, 1f, 1f, 0.92f);
     private static readonly Color TextSecondary = new(0.92f, 0.92f, 0.96f, 0.55f);
     private static readonly Color TextTertiary = new(0.92f, 0.92f, 0.96f, 0.32f);
+    private static readonly Color TextSuccess = new(0.45f, 0.88f, 0.58f, 0.98f);
     private const int RadiusPanel = 16;
     private const int RadiusSection = 10;
     private const int FontTitle = 15;
@@ -90,6 +103,7 @@ internal partial class MapImportPanelLayer : CanvasLayer
     private Label _imageNameLabel = null!;
     private Label? _folderPathLabel;
     private Label _scaleValueLabel = null!;
+    private PanelBtn _previewButton = null!;
     private Label _statusLabel = null!;
     private Label _detailValueLabel = null!;
     private Label _maxLinesValueLabel = null!;
@@ -98,16 +112,19 @@ internal partial class MapImportPanelLayer : CanvasLayer
     private Label _morphCloseValueLabel = null!;
     private Label _joinValueLabel = null!;
     private Label _cannyContrastValueLabel = null!;
+    private Label _pointsPerFrameValueLabel = null!;
     private OptionButton _extractAlgorithmOption = null!;
     private bool _syncingExtractAlgorithm;
     private VBoxContainer _advancedSection = null!;
     private PanelBtn _advancedToggleBtn = null!;
     private PanelBtn _importButton = null!;
+    private Label _playbackProgressLabel = null!;
     private PanelBtn? _deleteImageButton;
     private string _statusText = "将图片放入图库文件夹后点击导入。";
     private LocalImageServer? _server;
 
     private bool _shownForMap;
+    // 不再模拟指针后面板不需要隐藏——可在绘制中实时看进度。
     private bool _isDragging;
     private bool _isResizing;
     private Vector2 _dragOffset;
@@ -115,7 +132,6 @@ internal partial class MapImportPanelLayer : CanvasLayer
     private Vector2 _resizeStartPos;
     private float _resizeStartWidth;
     private Edge _resizeEdges;
-    private bool _simulatedPaintInProgress;
 
     public MapImportPanelLayer()
     {
@@ -127,10 +143,36 @@ internal partial class MapImportPanelLayer : CanvasLayer
     public override void _Ready()
     {
         BuildUi();
+        MapStrokeInputPlayback.PlaybackFinished += OnStrokePlaybackFinished;
         if (MapImportLibrary.IsMobile)
             StartUploadServer();
         Refresh();
         Visible = false;
+        _panel.ResetSize();
+        _panel.CallDeferred(Control.MethodName.ResetSize);
+    }
+
+    private void OnStrokePlaybackFinished()
+    {
+        string msg;
+        if (MapStrokeInputPlayback.LastSessionEndedNaturally)
+        {
+            msg = "绘制已完成。";
+        }
+        else if (MapStrokeInputPlayback.LastSessionAborted)
+        {
+            msg = "绘制已中断。";
+        }
+        else if (MapStrokeInputPlayback.LastSessionStoppedManually)
+        {
+            msg = "已停止；进度已保存时可点「开始绘制」续画。";
+        }
+        else
+        {
+            msg = "绘制已结束。";
+        }
+
+        Refresh(msg);
     }
 
     private void StartUploadServer()
@@ -152,10 +194,14 @@ internal partial class MapImportPanelLayer : CanvasLayer
     public void ShowForMap(NMapScreen? mapScreen, string? status = null)
     {
         _shownForMap = mapScreen is not null && mapScreen.IsOpen && mapScreen.IsVisibleInTree();
-        Visible = _shownForMap;
         Refresh(status);
+        ApplyPanelVisibility();
+        _panel.ResetSize();
+        _panel.CallDeferred(Control.MethodName.ResetSize);
         ModLog.Info($"MapImportPanel: visibility set to {Visible}.");
     }
+
+    // SetPlaybackSuppressesPanel removed: no longer needed without mouse simulation.
 
     public void HidePanel()
     {
@@ -180,7 +226,21 @@ internal partial class MapImportPanelLayer : CanvasLayer
             Refresh($"已通过浏览器上传: {uploaded}");
         }
 
-        if (!_shownForMap) return;
+        ApplyPanelVisibility();
+
+        if (MapStrokeInputPlayback.IsActive && Visible)
+        {
+            UpdatePlaybackProgressUi();
+        }
+    }
+
+    private void ApplyPanelVisibility()
+    {
+        if (!_shownForMap)
+        {
+            Visible = false;
+            return;
+        }
 
         var mapScreen = NMapScreen.Instance;
         if (mapScreen is null || !mapScreen.IsOpen || !mapScreen.IsVisibleInTree())
@@ -188,6 +248,8 @@ internal partial class MapImportPanelLayer : CanvasLayer
             Visible = false;
             return;
         }
+
+        // 不再隐藏面板，绘制中可实时看进度。
 
         bool overlayActive = false;
         try
@@ -231,6 +293,7 @@ internal partial class MapImportPanelLayer : CanvasLayer
         _morphCloseValueLabel.Text = $"{settings.MorphCloseIterations}";
         _joinValueLabel.Text = $"{settings.StrokeJoinPixels}";
         _cannyContrastValueLabel.Text = $"{(int)Math.Round(settings.CannyContrast * 100f)}%";
+        _pointsPerFrameValueLabel.Text = $"{settings.PointsPerFrame}";
         _syncingExtractAlgorithm = true;
         try
         {
@@ -248,9 +311,55 @@ internal partial class MapImportPanelLayer : CanvasLayer
         }
 
         _statusLabel.Text = _statusText;
-        _importButton.SetDisabled(selectedPath is null || NMapScreen.Instance is null || !NMapScreen.Instance.IsOpen);
-        _deleteImageButton?.SetDisabled(selectedPath is null);
+        var mapOk = NMapScreen.Instance is not null && NMapScreen.Instance.IsOpen;
+        var busy = MapStrokeInputPlayback.IsActive;
+        _importButton.Text = busy ? "停止绘制（F5）" : "开始绘制（F5）";
+        _importButton.SetDisabled(selectedPath is null || !mapOk);
+        _previewButton.SetDisabled(selectedPath is null || !mapOk || busy);
+        _deleteImageButton?.SetDisabled(selectedPath is null || busy);
+        UpdatePlaybackProgressUi();
         SyncAdvancedPanelUi(settings);
+    }
+
+
+    private void UpdatePlaybackProgressUi()
+    {
+        if (MapStrokeInputPlayback.IsActive)
+        {
+            var p = MapStrokeInputPlayback.GetApproximateProgressPercent();
+            _playbackProgressLabel.Text = $"约 {p}%";
+            _playbackProgressLabel.TooltipText = "按各笔折线总长估算的约略完成比例。";
+            _playbackProgressLabel.AddThemeColorOverride("font_color", TextSecondary);
+            return;
+        }
+
+        if (MapStrokeInputPlayback.LastSessionEndedNaturally)
+        {
+            _playbackProgressLabel.Text = "完成";
+            _playbackProgressLabel.TooltipText = "上一段已自然画完。";
+            _playbackProgressLabel.AddThemeColorOverride("font_color", TextSuccess);
+            return;
+        }
+
+        if (MapStrokeInputPlayback.LastSessionAborted)
+        {
+            _playbackProgressLabel.Text = "已中断";
+            _playbackProgressLabel.TooltipText = "上一段因地图不可用等原因中断。";
+            _playbackProgressLabel.AddThemeColorOverride("font_color", TextTertiary);
+            return;
+        }
+
+        if (MapStrokeInputPlayback.LastSessionStoppedManually)
+        {
+            _playbackProgressLabel.Text = "已停止";
+            _playbackProgressLabel.TooltipText = "上一段由 F5 或按钮手动停止；若已保存进度可续画。";
+            _playbackProgressLabel.AddThemeColorOverride("font_color", TextSecondary);
+            return;
+        }
+
+        _playbackProgressLabel.Text = "—";
+        _playbackProgressLabel.TooltipText = "开始绘制后显示约略进度。";
+        _playbackProgressLabel.AddThemeColorOverride("font_color", TextTertiary);
     }
 
     private void SyncAdvancedPanelUi(MapPaintSettings settings)
@@ -329,7 +438,7 @@ internal partial class MapImportPanelLayer : CanvasLayer
 
         var title = new Label
         {
-            Text = "地图绘制 v1.0.2",
+            Text = "地图绘制 v1.1.0",
             MouseFilter = Control.MouseFilterEnum.Ignore,
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
         };
@@ -398,20 +507,40 @@ internal partial class MapImportPanelLayer : CanvasLayer
 
     private void BuildActionsSection(Control parent)
     {
+        var outer = new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        outer.AddThemeConstantOverride("separation", 6);
+        parent.AddChild(outer);
+
+        var row = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        row.AddThemeConstantOverride("separation", 8);
+        outer.AddChild(row);
+
+        _importButton = MakePillBtn("开始绘制（F5）", OnDrawAction, true);
+        _importButton.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         if (MapImportLibrary.IsMobile)
         {
-            var stack = new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
-            stack.AddThemeConstantOverride("separation", 6);
-            parent.AddChild(stack);
-
-            _importButton = MakePillBtn("绘制", OnImportPressed, true);
-            _importButton.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
             _importButton.CustomMinimumSize = new Vector2(0, 48);
-            stack.AddChild(_importButton);
+        }
 
+        row.AddChild(_importButton);
+
+        _playbackProgressLabel = new Label
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            Text = "—",
+        };
+        _playbackProgressLabel.AddThemeFontSizeOverride("font_size", FontBtnSmall);
+        _playbackProgressLabel.AddThemeColorOverride("font_color", TextTertiary);
+        _playbackProgressLabel.CustomMinimumSize = new Vector2(MapImportLibrary.IsMobile ? 60 : 100, 0);
+        row.AddChild(_playbackProgressLabel);
+
+        if (MapImportLibrary.IsMobile)
+        {
             var uploadDeleteRow = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
             uploadDeleteRow.AddThemeConstantOverride("separation", 6);
-            stack.AddChild(uploadDeleteRow);
+            outer.AddChild(uploadDeleteRow);
 
             var uploadBtn = MakeGreenPillBtn("上传图片", OnOpenUploadPage);
             uploadBtn.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
@@ -422,16 +551,6 @@ internal partial class MapImportPanelLayer : CanvasLayer
             _deleteImageButton.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
             _deleteImageButton.CustomMinimumSize = new Vector2(0, 44);
             uploadDeleteRow.AddChild(_deleteImageButton);
-        }
-        else
-        {
-            var row = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
-            row.AddThemeConstantOverride("separation", 8);
-            parent.AddChild(row);
-
-            _importButton = MakePillBtn("绘制", OnImportPressed, true);
-            _importButton.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-            row.AddChild(_importButton);
         }
     }
 
@@ -489,6 +608,11 @@ internal partial class MapImportPanelLayer : CanvasLayer
         stepRow.AddChild(_scaleValueLabel);
         stepRow.AddChild(MakeStepperBtn("+", OnScaleUp));
         scaleRow.AddChild(stepper);
+
+        scaleRow.AddChild(MakeSmallGap(10));
+        _previewButton = MakeTextBtn("预览", OnPreviewLocal);
+        _previewButton.TooltipText = "按当前参数在本地预览线稿效果（仅本机可见，不走联机同步）。";
+        scaleRow.AddChild(_previewButton);
     }
 
     /// <summary>展开后：提取参数、位置微调、重置。</summary>
@@ -530,6 +654,13 @@ internal partial class MapImportPanelLayer : CanvasLayer
         row4.AddChild(MakeSmallGap(12));
         row4.AddChild(MakeParamStepper("对比", out _cannyContrastValueLabel, OnCannyContrastDown, OnCannyContrastUp, 44,
             "仅 Canny：提取前对灰度做线性对比（100%=不变），略大于 100% 可突出弱边。"));
+
+        var row5 = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        row5.AddThemeConstantOverride("separation", 0);
+        parent.AddChild(row5);
+
+        row5.AddChild(MakeParamStepper("速度", out _pointsPerFrameValueLabel, OnPointsPerFrameDown, OnPointsPerFrameUp, 52,
+            "自动绘制时每帧推进的顶点数：越大越快；过高可能卡顿，可按机器酌情调高。"));
     }
 
     private void BuildAdvancedTransformSection(Control parent)
@@ -902,6 +1033,8 @@ internal partial class MapImportPanelLayer : CanvasLayer
             return;
         }
 
+        MapStrokePlaybackProgress.DeleteFile();
+
         var name = Path.GetFileName(path);
         try
         {
@@ -931,6 +1064,7 @@ internal partial class MapImportPanelLayer : CanvasLayer
 
     private void ApplyImagePath(string path)
     {
+        MapStrokePlaybackProgress.DeleteFile();
         var s = MapPaintSettings.Load();
         s.ImagePath = path;
         s.Save();
@@ -938,15 +1072,30 @@ internal partial class MapImportPanelLayer : CanvasLayer
         Refresh($"已选择: {Path.GetFileName(path)}");
     }
 
-    private void OnImportPressed()
+    private void OnPreviewLocal()
     {
-        if (!MapAutoPainter.TryBeginSimulatedPaint(NMapScreen.Instance, this, r =>
-            {
-                _simulatedPaintInProgress = false;
-                Refresh(r.Message);
-            }))
+        if (MapStrokeInputPlayback.IsActive)
+        {
+            Refresh("请先停止绘制再预览。");
             return;
-        _simulatedPaintInProgress = true;
+        }
+
+        var r = MapAutoPainter.TryApply(NMapScreen.Instance);
+        Refresh(r.Message);
+    }
+
+    private void OnDrawAction()
+    {
+        if (MapStrokeInputPlayback.IsActive)
+        {
+            var r = MapStrokeInputPlayback.TryStop(saveProgress: true);
+            Refresh(r.Message);
+        }
+        else
+        {
+            var r = MapStrokeInputPlayback.TryStart(NMapScreen.Instance);
+            Refresh(r.Message);
+        }
     }
 
     private void OnDetailUp() => AdjustDetail(128);
@@ -963,6 +1112,17 @@ internal partial class MapImportPanelLayer : CanvasLayer
 
     private void OnMaxLinesUp() => AdjustMaxLines(2000);
     private void OnMaxLinesDown() => AdjustMaxLines(-2000);
+
+    private void OnPointsPerFrameUp() => AdjustPointsPerFrame(8);
+    private void OnPointsPerFrameDown() => AdjustPointsPerFrame(-8);
+
+    private void AdjustPointsPerFrame(int delta)
+    {
+        var s = MapPaintSettings.Load();
+        s.PointsPerFrame = Math.Clamp(s.PointsPerFrame + delta, 8, 512);
+        s.Save();
+        Refresh($"绘制速度: {s.PointsPerFrame} 点/帧");
+    }
 
     private void AdjustMaxLines(int delta)
     {
@@ -1082,6 +1242,7 @@ internal partial class MapImportPanelLayer : CanvasLayer
         s.MorphCloseIterations = 1;
         s.StrokeJoinPixels = 3;
         s.CannyContrast = 1.30f;
+        s.PointsPerFrame = 512;
         s.ExtractAlgorithm = "canny";
         s.WindowX = 24f;
         s.WindowY = 72f;
@@ -1095,11 +1256,6 @@ internal partial class MapImportPanelLayer : CanvasLayer
 
     private void AutoRedraw()
     {
-        if (_simulatedPaintInProgress)
-            return;
-        var r = MapAutoPainter.TryApplyLocal(NMapScreen.Instance);
-        if (!string.IsNullOrWhiteSpace(r.Message))
-            Refresh(r.Message);
     }
 
     private static Control MakeSmallGap(float width)

@@ -11,7 +11,7 @@
   "SimplifyTolerance": 0.5,
   "SmoothSubdivisions": 8,
   "ViewPadding": 80,
-  "PointsPerFrame": 24,
+  "PointsPerFrame": 72,
   "DrawOncePerSession": true,
   "DrawScale": 1.0,
   "OffsetX": 0,

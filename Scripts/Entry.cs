@@ -20,6 +20,8 @@ public static class Entry
         MapRuntimeProbe.Initialize();
         ScriptManagerBridge.LookupScriptsInAssembly(typeof(Entry).Assembly);
         MapImportPanel.EnsureInstalled();
+        MapPaintHotkeys.EnsureInstalled();
+        MapStrokeUserInputWatcher.EnsureInstalled();
 
         ModLog.Info("Entry.Init finished.");
     }

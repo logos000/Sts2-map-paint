@@ -8,3 +8,6 @@ StrokePreview/obj/
 
 # 发布用压缩包：仅上传到 GitHub Release，不纳入版本库
 map_paint.zip
+
+# AI 工具临时目录
+.claude/
