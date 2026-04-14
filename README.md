@@ -32,8 +32,9 @@
 
 - 在地图界面导入图库中的图片，按可调参数提取笔画并绘制到地图上。
 - **联机可见**：点击「开始绘制」后，模组直接调用游戏 `NMapDrawings` 的 Local API（`BeginLineLocal` / `UpdateCurrentLinePositionLocal` / `StopLineLocal`）按帧逐笔推进，内部自动发送联机消息，队友实时可见。无需模拟鼠标/触摸事件。
-- **F5 快捷键**：随时按 F5 切换开始/停止绘制。停止时自动保存断点（`config/map_paint.playback.json`），下次在相同图片与参数下可续画。
-- **本地预览**：缩放行旁的「预览」按钮使用 `LoadDrawings` 快速加载线稿（仅本机可见，不走联机同步），方便调参时即时查看效果。
+- **多图叠加**：画新图时不会清除旧图，多张图可以同时存在于画布上。
+- **选择性移除**：已绘制列表中可单独移除某一张图，或一键清除全部。
+- **断点续画**：停止时自动保存断点（`config/map_paint.playback.json`），下次在相同图片与参数下可续画。
 - **移动端（Android / iOS）**：上传图片通过本机 HTTP 服务在浏览器中完成（详见游戏内说明）。
 
 ---
@@ -46,7 +47,16 @@
 
 ## Map Paint (English summary)
 
-Mod for **Slay the Spire 2** that imports an image and redraws it on the map using the game's drawing system.  
-**Multiplayer-visible:** strokes are drawn via the game's native `NMapDrawings` Local API, so teammates see them in real time.  
-**Requires BaseLib.** Install from **Releases** by extracting the zip into the game's `mods` folder.  
-Licensed under the [MIT License](LICENSE).
+Map Paint lets you import any image and redraw it on the map in Slay the Spire 2, stroke by stroke, using the game's native drawing API. Pick a picture, adjust a few settings, and watch it come to life on the map — teammates will see it too.
+
+**Core Features:**
+- **Multiplayer-visible:** Strokes go through the game's own drawing API (no mouse simulation). Teammates see your art in real time.
+- **Multi-image stacking:** Draw multiple images without clearing previous ones. They all coexist on the map.
+- **Selective removal:** Remove a specific image from the map while keeping others, or clear the entire canvas at once.
+- **Two extraction algorithms:** Canny for a hand-drawn feel, Skeleton (XDoG) for clean contours.
+- **Tunable parameters:** Adjust scale, detail, stroke count, edge sensitivity, line joining, contrast, and drawing speed.
+- **Auto-save & resume:** Progress saves when you stop, picking up exactly where you left off.
+- **Collapsible UI:** Panel shrinks to a draggable ball so it never blocks your view.
+- **Mobile support:** Upload images via a local browser page on Android/iOS.
+
+**Requires BaseLib.** Install from **Releases** by extracting the zip into the game's `mods` folder. Licensed under the [MIT License](LICENSE).
