@@ -31,7 +31,7 @@ internal sealed class MapPaintSettings
     public int SmoothSubdivisions { get; set; } = 8;
     public float ViewPadding { get; set; } = 80f;
     /// <summary>自动绘制时每帧推进的笔画顶点数；越大越快。</summary>
-    public int PointsPerFrame { get; set; } = 512;
+    public int PointsPerFrame { get; set; } = 256;
     public float DrawScale { get; set; } = 0.8f;
     public float OffsetX { get; set; }
     public float OffsetY { get; set; }
@@ -46,6 +46,9 @@ internal sealed class MapPaintSettings
     public float WindowWidth { get; set; } = float.NaN;
     /// <summary>地图绘制面板是否展开「高级设置」区块。</summary>
     public bool ShowAdvancedPanel { get; set; }
+
+    /// <summary>面板是否折叠为小球。</summary>
+    public bool PanelCollapsed { get; set; }
 
     /// <summary>自动绘制开始后多少毫秒内不响应「玩家暂停」检测，避免与首帧注入抢判。</summary>
     public int PlaybackPauseGraceMs { get; set; } = 900;

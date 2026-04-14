@@ -133,6 +133,14 @@ internal partial class MapImportPanelLayer : CanvasLayer
     private float _resizeStartWidth;
     private Edge _resizeEdges;
 
+    // 面板折叠为小球
+    private bool _collapsed;
+    private PanelContainer _ball = null!;
+    private Label _ballLabel = null!;
+    private bool _ballDragging;
+    private Vector2 _ballDragOffset;
+    private Vector2 _ballPressPos;
+
     public MapImportPanelLayer()
     {
         ProcessMode = ProcessModeEnum.Always;
@@ -249,8 +257,6 @@ internal partial class MapImportPanelLayer : CanvasLayer
             return;
         }
 
-        // 不再隐藏面板，绘制中可实时看进度。
-
         bool overlayActive = false;
         try
         {
@@ -263,7 +269,17 @@ internal partial class MapImportPanelLayer : CanvasLayer
             // NRun.Instance may not exist yet
         }
 
-        Visible = !overlayActive;
+        var shouldShow = !overlayActive;
+        if (!shouldShow)
+        {
+            Visible = false;
+            return;
+        }
+
+        Visible = true;
+        // 保持折叠/展开状态一致
+        _panel.Visible = !_collapsed;
+        _ball.Visible = _collapsed;
     }
 
     public void Refresh(string? status = null)
@@ -330,6 +346,7 @@ internal partial class MapImportPanelLayer : CanvasLayer
             _playbackProgressLabel.Text = $"约 {p}%";
             _playbackProgressLabel.TooltipText = "按各笔折线总长估算的约略完成比例。";
             _playbackProgressLabel.AddThemeColorOverride("font_color", TextSecondary);
+            _ballLabel.Text = $"{p}%";
             return;
         }
 
@@ -338,6 +355,8 @@ internal partial class MapImportPanelLayer : CanvasLayer
             _playbackProgressLabel.Text = "完成";
             _playbackProgressLabel.TooltipText = "上一段已自然画完。";
             _playbackProgressLabel.AddThemeColorOverride("font_color", TextSuccess);
+            _ballLabel.Text = "✓";
+            _ballLabel.AddThemeColorOverride("font_color", TextSuccess);
             return;
         }
 
@@ -346,6 +365,7 @@ internal partial class MapImportPanelLayer : CanvasLayer
             _playbackProgressLabel.Text = "已中断";
             _playbackProgressLabel.TooltipText = "上一段因地图不可用等原因中断。";
             _playbackProgressLabel.AddThemeColorOverride("font_color", TextTertiary);
+            _ballLabel.Text = "画";
             return;
         }
 
@@ -354,12 +374,15 @@ internal partial class MapImportPanelLayer : CanvasLayer
             _playbackProgressLabel.Text = "已停止";
             _playbackProgressLabel.TooltipText = "上一段由 F5 或按钮手动停止；若已保存进度可续画。";
             _playbackProgressLabel.AddThemeColorOverride("font_color", TextSecondary);
+            _ballLabel.Text = "画";
             return;
         }
 
         _playbackProgressLabel.Text = "—";
         _playbackProgressLabel.TooltipText = "开始绘制后显示约略进度。";
         _playbackProgressLabel.AddThemeColorOverride("font_color", TextTertiary);
+        _ballLabel.Text = "画";
+        _ballLabel.AddThemeColorOverride("font_color", TextPrimary);
     }
 
     private void SyncAdvancedPanelUi(MapPaintSettings settings)
@@ -390,6 +413,31 @@ internal partial class MapImportPanelLayer : CanvasLayer
         _panel.GuiInput += OnPanelGuiInput;
         AddChild(_panel);
 
+        // 折叠后的小球
+        _ball = new PanelContainer
+        {
+            MouseFilter = Control.MouseFilterEnum.Stop,
+            ProcessMode = ProcessModeEnum.Always,
+            CustomMinimumSize = new Vector2(40, 40),
+            Visible = false,
+        };
+        _ball.AddThemeStyleboxOverride("panel", MakeStyle(
+            new Color(0.11f, 0.11f, 0.12f, 0.92f),
+            new Color(1f, 1f, 1f, 0.12f), 1, 20, 0, 0));
+        _ball.GuiInput += OnBallGuiInput;
+        AddChild(_ball);
+
+        _ballLabel = new Label
+        {
+            Text = "画",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        _ballLabel.AddThemeFontSizeOverride("font_size", 14);
+        _ballLabel.AddThemeColorOverride("font_color", TextPrimary);
+        _ball.AddChild(_ballLabel);
+
         var root = new VBoxContainer();
         root.AddThemeConstantOverride("separation", 14);
         root.MouseFilter = Control.MouseFilterEnum.Ignore;
@@ -419,6 +467,14 @@ internal partial class MapImportPanelLayer : CanvasLayer
             _advancedToggleBtn.Text = "高级设置 ▲";
         }
 
+        if (cfg.PanelCollapsed)
+        {
+            _collapsed = true;
+            _panel.Visible = false;
+            _ball.Position = new Vector2(startX, startY);
+            _ball.Visible = true;
+        }
+
         root.AddChild(MakeDivider());
         BuildFooterSection(root);
     }
@@ -429,6 +485,86 @@ internal partial class MapImportPanelLayer : CanvasLayer
         s.ShowAdvancedPanel = !s.ShowAdvancedPanel;
         s.Save();
         SyncAdvancedPanelUi(s);
+    }
+
+    private void ToggleCollapse()
+    {
+        _collapsed = !_collapsed;
+        if (_collapsed)
+        {
+            _ball.Position = _panel.Position;
+            _panel.Visible = false;
+            _ball.Visible = true;
+        }
+        else
+        {
+            _panel.Position = _ball.Position;
+            _ball.Visible = false;
+            _panel.Visible = true;
+            _panel.ResetSize();
+            _panel.CallDeferred(Control.MethodName.ResetSize);
+        }
+
+        var s = MapPaintSettings.Load();
+        s.PanelCollapsed = _collapsed;
+        s.WindowX = _collapsed ? _ball.Position.X : _panel.Position.X;
+        s.WindowY = _collapsed ? _ball.Position.Y : _panel.Position.Y;
+        s.Save();
+    }
+
+    private void OnBallGuiInput(InputEvent inputEvent)
+    {
+        if (!Visible || !_ball.Visible) return;
+
+        if (inputEvent is InputEventMouseButton { ButtonIndex: MouseButton.Left } mb)
+        {
+            if (mb.Pressed)
+            {
+                _ballDragging = false;
+                _ballPressPos = mb.GlobalPosition;
+                _ballDragOffset = _ball.Position - mb.GlobalPosition;
+                GetViewport().SetInputAsHandled();
+                _ball.AcceptEvent();
+                return;
+            }
+
+            // Released
+            if (_ballDragging)
+            {
+                var s = MapPaintSettings.Load();
+                s.WindowX = _ball.Position.X;
+                s.WindowY = _ball.Position.Y;
+                s.Save();
+            }
+            else
+            {
+                // Click (no drag) → expand
+                ToggleCollapse();
+            }
+            _ballDragging = false;
+            GetViewport().SetInputAsHandled();
+            _ball.AcceptEvent();
+            return;
+        }
+
+        if (inputEvent is InputEventMouseMotion mm)
+        {
+            if (mm.ButtonMask != 0 && _ballPressPos != Vector2.Zero)
+            {
+                var dist = (mm.GlobalPosition - _ballPressPos).Length();
+                if (dist > 4f)
+                {
+                    _ballDragging = true;
+                }
+            }
+
+            if (_ballDragging)
+            {
+                _ball.Position = mm.GlobalPosition + _ballDragOffset;
+            }
+            GetViewport().SetInputAsHandled();
+            _ball.AcceptEvent();
+        }
     }
 
     private void BuildHeaderSection(Control parent)
@@ -455,6 +591,11 @@ internal partial class MapImportPanelLayer : CanvasLayer
         badge.AddThemeFontSizeOverride("font_size", 10);
         badge.AddThemeColorOverride("font_color", TextTertiary);
         row.AddChild(badge);
+
+        row.AddChild(MakeSmallGap(8));
+        var collapseBtn = MakeTextBtn("×", ToggleCollapse);
+        collapseBtn.TooltipText = "折叠面板";
+        row.AddChild(collapseBtn);
     }
 
     private void BuildSelectorSection(Control parent)
