@@ -68,7 +68,7 @@ internal sealed class MapPaintSettings
     /// <summary>非左键按住超过此毫秒才视为要暂停；左键不参与（与模拟左键绘画区分）。</summary>
     public int PlaybackPauseButtonHoldMs { get; set; } = 950;
 
-    /// <summary>为 true 时仅能通过 F5/「停止绘制」结束自动画，指针移动等不再自动暂停。</summary>
+    /// <summary>为 true 时仅能通过「停止绘制」按钮结束自动画，指针移动等不再自动暂停。</summary>
     public bool PlaybackStopOnlyWithHotkey { get; set; } = true;
 
 

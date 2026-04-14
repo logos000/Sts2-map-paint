@@ -103,7 +103,6 @@ internal partial class MapImportPanelLayer : CanvasLayer
     private Label _imageNameLabel = null!;
     private Label? _folderPathLabel;
     private Label _scaleValueLabel = null!;
-    private PanelBtn _previewButton = null!;
     private Label _statusLabel = null!;
     private Label _detailValueLabel = null!;
     private Label _maxLinesValueLabel = null!;
@@ -120,6 +119,8 @@ internal partial class MapImportPanelLayer : CanvasLayer
     private PanelBtn _importButton = null!;
     private Label _playbackProgressLabel = null!;
     private PanelBtn? _deleteImageButton;
+    private VBoxContainer _drawnImagesSection = null!;
+    private PanelBtn? _clearCanvasBtn;
     private string _statusText = "将图片放入图库文件夹后点击导入。";
     private LocalImageServer? _server;
 
@@ -150,6 +151,7 @@ internal partial class MapImportPanelLayer : CanvasLayer
 
     public override void _Ready()
     {
+        DrawingHistory.Load();
         BuildUi();
         MapStrokeInputPlayback.PlaybackFinished += OnStrokePlaybackFinished;
         if (MapImportLibrary.IsMobile)
@@ -329,11 +331,11 @@ internal partial class MapImportPanelLayer : CanvasLayer
         _statusLabel.Text = _statusText;
         var mapOk = NMapScreen.Instance is not null && NMapScreen.Instance.IsOpen;
         var busy = MapStrokeInputPlayback.IsActive;
-        _importButton.Text = busy ? "停止绘制（F5）" : "开始绘制（F5）";
+        _importButton.Text = busy ? "停止绘制" : "开始绘制";
         _importButton.SetDisabled(selectedPath is null || !mapOk);
-        _previewButton.SetDisabled(selectedPath is null || !mapOk || busy);
         _deleteImageButton?.SetDisabled(selectedPath is null || busy);
         UpdatePlaybackProgressUi();
+        RebuildDrawnImagesList();
         SyncAdvancedPanelUi(settings);
     }
 
@@ -372,7 +374,7 @@ internal partial class MapImportPanelLayer : CanvasLayer
         if (MapStrokeInputPlayback.LastSessionStoppedManually)
         {
             _playbackProgressLabel.Text = "已停止";
-            _playbackProgressLabel.TooltipText = "上一段由 F5 或按钮手动停止；若已保存进度可续画。";
+            _playbackProgressLabel.TooltipText = "上一段由按钮手动停止；若已保存进度可续画。";
             _playbackProgressLabel.AddThemeColorOverride("font_color", TextSecondary);
             _ballLabel.Text = "画";
             return;
@@ -448,6 +450,7 @@ internal partial class MapImportPanelLayer : CanvasLayer
         BuildSelectorSection(root);
         root.AddChild(MakeDivider());
         BuildActionsSection(root);
+        BuildDrawnImagesSection(root);
         root.AddChild(MakeDivider());
         BuildBasicParamsSection(root);
         _advancedToggleBtn = MakeTextBtn("高级设置 ▼", OnToggleAdvancedPanel);
@@ -656,7 +659,7 @@ internal partial class MapImportPanelLayer : CanvasLayer
         row.AddThemeConstantOverride("separation", 8);
         outer.AddChild(row);
 
-        _importButton = MakePillBtn("开始绘制（F5）", OnDrawAction, true);
+        _importButton = MakePillBtn("开始绘制", OnDrawAction, true);
         _importButton.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         if (MapImportLibrary.IsMobile)
         {
@@ -693,6 +696,88 @@ internal partial class MapImportPanelLayer : CanvasLayer
             _deleteImageButton.CustomMinimumSize = new Vector2(0, 44);
             uploadDeleteRow.AddChild(_deleteImageButton);
         }
+    }
+
+    /// <summary>已绘制图片列表 + 清除画布按钮。仅在有已绘制图片时显示。</summary>
+    private void BuildDrawnImagesSection(Control parent)
+    {
+        _drawnImagesSection = new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        _drawnImagesSection.AddThemeConstantOverride("separation", 4);
+        _drawnImagesSection.Visible = false;
+        parent.AddChild(_drawnImagesSection);
+    }
+
+    /// <summary>根据 DrawingHistory 重建已绘制列表 UI。</summary>
+    private void RebuildDrawnImagesList()
+    {
+        foreach (var child in _drawnImagesSection.GetChildren())
+        {
+            child.QueueFree();
+        }
+
+        if (DrawingHistory.Count == 0)
+        {
+            _drawnImagesSection.Visible = false;
+            return;
+        }
+
+        _drawnImagesSection.Visible = true;
+        var busy = MapStrokeInputPlayback.IsActive;
+
+        var headerRow = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        headerRow.AddThemeConstantOverride("separation", 6);
+        _drawnImagesSection.AddChild(headerRow);
+
+        var countLabel = new Label
+        {
+            Text = $"已绘制: {DrawingHistory.Count} 张",
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        countLabel.AddThemeFontSizeOverride("font_size", FontCaption);
+        countLabel.AddThemeColorOverride("font_color", TextSecondary);
+        headerRow.AddChild(countLabel);
+
+        headerRow.AddChild(MakeSmallGap(8));
+
+        _clearCanvasBtn = MakeTextBtn("清除画布", OnClearCanvas);
+        _clearCanvasBtn.TooltipText = "清除画布上所有已绘制的图片。";
+        if (busy) _clearCanvasBtn.SetDisabled(true);
+        headerRow.AddChild(_clearCanvasBtn);
+
+        foreach (var item in DrawingHistory.Items)
+        {
+            var row = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+            row.AddThemeConstantOverride("separation", 6);
+            _drawnImagesSection.AddChild(row);
+
+            var nameLabel = new Label
+            {
+                Text = Path.GetFileName(item.ImagePath),
+                MouseFilter = Control.MouseFilterEnum.Ignore,
+                ClipText = true,
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            };
+            nameLabel.AddThemeFontSizeOverride("font_size", FontCaption);
+            nameLabel.AddThemeColorOverride("font_color", TextSecondary);
+            row.AddChild(nameLabel);
+
+            var removeBtn = MakeTextBtn("×", () => OnRemoveDrawnImage(item.ImagePath));
+            removeBtn.TooltipText = $"从画布移除 {Path.GetFileName(item.ImagePath)}";
+            if (busy) removeBtn.SetDisabled(true);
+            row.AddChild(removeBtn);
+        }
+    }
+
+    private void OnClearCanvas()
+    {
+        var r = MapStrokeInputPlayback.TryClearAll(NMapScreen.Instance);
+        Refresh(r.Message);
+    }
+
+    private void OnRemoveDrawnImage(string imagePath)
+    {
+        var r = MapStrokeInputPlayback.TryRemoveImage(NMapScreen.Instance, imagePath);
+        Refresh(r.Message);
     }
 
     /// <summary>常用：算法、画布缩放。</summary>
@@ -751,9 +836,6 @@ internal partial class MapImportPanelLayer : CanvasLayer
         scaleRow.AddChild(stepper);
 
         scaleRow.AddChild(MakeSmallGap(10));
-        _previewButton = MakeTextBtn("预览", OnPreviewLocal);
-        _previewButton.TooltipText = "按当前参数在本地预览线稿效果（仅本机可见，不走联机同步）。";
-        scaleRow.AddChild(_previewButton);
     }
 
     /// <summary>展开后：提取参数、位置微调、重置。</summary>
@@ -1211,18 +1293,6 @@ internal partial class MapImportPanelLayer : CanvasLayer
         s.Save();
         MapImportLibrary.RefreshCache();
         Refresh($"已选择: {Path.GetFileName(path)}");
-    }
-
-    private void OnPreviewLocal()
-    {
-        if (MapStrokeInputPlayback.IsActive)
-        {
-            Refresh("请先停止绘制再预览。");
-            return;
-        }
-
-        var r = MapAutoPainter.TryApply(NMapScreen.Instance);
-        Refresh(r.Message);
     }
 
     private void OnDrawAction()

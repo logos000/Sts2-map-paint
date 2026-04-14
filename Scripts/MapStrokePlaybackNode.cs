@@ -17,6 +17,7 @@ internal sealed partial class MapStrokePlaybackNode : Node
     private List<Vector2[]> _strokes = [];
     private MapPaintSettings _settings = null!;
     private string _fingerprint = "";
+    private string _imagePath = "";
     private int _strokeIndex;
     private int _pointIndex;
     private bool _penDown;
@@ -76,12 +77,14 @@ internal sealed partial class MapStrokePlaybackNode : Node
         List<Vector2[]> strokes,
         MapPaintSettings settings,
         string fingerprint,
-        MapStrokePlaybackProgress? resume)
+        MapStrokePlaybackProgress? resume,
+        string imagePath)
     {
         _drawings = mapScreen.Drawings;
         _strokes = strokes;
         _settings = settings;
         _fingerprint = fingerprint;
+        _imagePath = imagePath;
 
         if (resume is not null)
         {
@@ -277,6 +280,12 @@ internal sealed partial class MapStrokePlaybackNode : Node
     private void CompleteNaturalFinish()
     {
         MapStrokePlaybackProgress.DeleteFile();
+        if (!string.IsNullOrWhiteSpace(_imagePath))
+        {
+            DrawingHistory.Add(_imagePath, _strokes);
+            Log.Debug($"DrawingHistory: recorded completed image {_imagePath} ({_strokes.Count} strokes).");
+        }
+
         Log.Debug("MapStrokePlayback: natural finish, progress file cleared.");
         MapStrokeInputPlayback.NotifyPlaybackFinishedNaturally();
         Finish();

@@ -19,6 +19,7 @@ internal static class NMapScreenOpenPatch
     private static void Postfix(NMapScreen __instance)
     {
         ModLog.Info("Harmony postfix hit: NMapScreen.Open");
+        DrawingHistory.Clear();
         MapImportPanel.Show(__instance);
     }
 }

@@ -1,8 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
+using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
+using MegaCrit.Sts2.Core.Runs;
+using MegaCrit.Sts2.Core.Saves.MapDrawing;
 
 namespace cielo.Scripts;
 
@@ -21,7 +25,7 @@ internal static class MapStrokeInputPlayback
     /// <summary>上一段播放是否自然画完（非手动停止、非异常）。下次 <see cref="TryStart"/> 时清零。</summary>
     public static bool LastSessionEndedNaturally { get; private set; }
 
-    /// <summary>上一段是否由 F5/停止按钮结束。下次 <see cref="TryStart"/> 时清零。</summary>
+    /// <summary>上一段是否由停止按钮结束。下次 <see cref="TryStart"/> 时清零。</summary>
     public static bool LastSessionStoppedManually { get; private set; }
 
     /// <summary>上一段是否因地图不可用等异常结束。下次 <see cref="TryStart"/> 时清零。</summary>
@@ -119,8 +123,6 @@ internal static class MapStrokeInputPlayback
 
         if (!canResume)
         {
-            // 与 NMapDrawings.ClearDrawnLinesLocal 一致：清本地玩家笔迹并通知联机，而非 ClearAllLines（会误清所有玩家且不同步）。
-            mapScreen.Drawings.ClearDrawnLinesLocal();
             MapStrokePlaybackProgress.DeleteFile();
         }
 
@@ -132,7 +134,8 @@ internal static class MapStrokeInputPlayback
             netStrokes,
             settings,
             fingerprint,
-            canResume ? saved : null);
+            canResume ? saved : null,
+            imagePath);
         mapScreen.AddChild(node);
         ActiveNode = node;
         PlaybackStartTicks = Time.GetTicksMsec();
@@ -175,5 +178,102 @@ internal static class MapStrokeInputPlayback
         return new MapAutoPaintResult(
             true,
             $"已保存进度：第 {n.StrokeIndex + 1}/{n.TotalStrokes} 笔附近。");
+    }
+
+    /// <summary>移除指定图片的笔画并重绘剩余（仅本地，不同步联机）。</summary>
+    public static MapAutoPaintResult TryRemoveImage(NMapScreen? mapScreen, string imagePath)
+    {
+        if (mapScreen is null)
+        {
+            return new MapAutoPaintResult(false, "地图界面不可用。");
+        }
+
+        if (IsActive)
+        {
+            return new MapAutoPaintResult(false, "请先停止当前绘制。");
+        }
+
+        var remaining = DrawingHistory.Remove(imagePath);
+        if (remaining is null)
+        {
+            return new MapAutoPaintResult(false, "该图片不在已绘制列表中。");
+        }
+
+        RedrawStrokes(mapScreen, remaining);
+        var name = Path.GetFileName(imagePath);
+        return new MapAutoPaintResult(true, $"已移除: {name}。剩余 {DrawingHistory.Count} 张。");
+    }
+
+    /// <summary>清除画布上所有本地笔画并清空历史。</summary>
+    public static MapAutoPaintResult TryClearAll(NMapScreen? mapScreen)
+    {
+        if (mapScreen is null)
+        {
+            return new MapAutoPaintResult(false, "地图界面不可用。");
+        }
+
+        if (IsActive)
+        {
+            return new MapAutoPaintResult(false, "请先停止当前绘制。");
+        }
+
+        mapScreen.Drawings.ClearDrawnLinesLocal();
+        DrawingHistory.Clear();
+        return new MapAutoPaintResult(true, "已清除画布。");
+    }
+
+    /// <summary>清除本地笔画并用指定的 strokes 重新加载（仅本地，不同步联机）。</summary>
+    private static void RedrawStrokes(NMapScreen mapScreen, IReadOnlyList<Vector2[]> strokes)
+    {
+        mapScreen.Drawings.ClearDrawnLinesLocal();
+        if (strokes.Count == 0)
+        {
+            return;
+        }
+
+        var netId = RunManager.Instance.NetService.NetId;
+        var player = FindLocalPlayer(mapScreen, netId);
+        if (player is null)
+        {
+            Log.Debug("MapStrokeInputPlayback: could not resolve local player, skip redraw.");
+            return;
+        }
+
+        var drawings = mapScreen.Drawings.GetSerializableMapDrawings();
+        drawings.drawings.RemoveAll(d => d.playerId == player.NetId);
+
+        var playerDrawings = new SerializablePlayerMapDrawings
+        {
+            playerId = player.NetId,
+        };
+
+        foreach (var stroke in strokes)
+        {
+            if (stroke.Length < 2)
+            {
+                continue;
+            }
+
+            playerDrawings.lines.Add(new SerializableMapDrawingLine
+            {
+                isEraser = false,
+                mapPoints = stroke.ToList(),
+            });
+        }
+
+        drawings.drawings.Add(playerDrawings);
+        mapScreen.Drawings.LoadDrawings(drawings);
+    }
+
+    private static Player? FindLocalPlayer(NMapScreen mapScreen, ulong netId)
+    {
+        var field = typeof(NMapScreen).GetField("_runState",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        if (field?.GetValue(mapScreen) is IRunState runState)
+        {
+            return runState.Players.FirstOrDefault(p => p.NetId == netId);
+        }
+
+        return null;
     }
 }

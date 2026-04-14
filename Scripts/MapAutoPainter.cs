@@ -1,12 +1,7 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
-using MegaCrit.Sts2.Core.Entities.Players;
-using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
-using MegaCrit.Sts2.Core.Runs;
-using MegaCrit.Sts2.Core.Saves.MapDrawing;
 
 namespace cielo.Scripts;
 
@@ -14,98 +9,12 @@ internal readonly record struct MapAutoPaintResult(bool Success, string Message)
 
 internal static class MapAutoPainter
 {
-    public static MapAutoPaintResult TryApply(NMapScreen? mapScreen)
-    {
-        if (mapScreen is null)
-        {
-            return new MapAutoPaintResult(false, "地图界面不可用。");
-        }
-
-        var settings = MapPaintSettings.Load();
-
-        var imagePath = settings.ResolveImagePath();
-        if (string.IsNullOrWhiteSpace(imagePath) || !Godot.FileAccess.FileExists(imagePath))
-        {
-            Log.Debug($"MapAutoPainter: image path is empty or missing: {imagePath}");
-            return new MapAutoPaintResult(
-                false,
-                "未选择图片，请将图片放入图库文件夹后用翻页选择。");
-        }
-
-        var strokes = ImageStrokeExtractor.Extract(imagePath, settings);
-        if (strokes.Count == 0)
-        {
-            Log.Debug("MapAutoPainter: no strokes were extracted from the source image.");
-            return new MapAutoPaintResult(false, "未能从图片中提取到可绘制的笔画。");
-        }
-
-        var mapped = MapToNetSpace(mapScreen, strokes, settings).ToList();
-        var drawings = BuildDrawingsFromMapped(mapScreen, mapped);
-        // 与本体一致：只清本地玩家笔迹并广播 ClearMapDrawingsMessage，避免清掉他人在本机的显示且联机不同步。
-        mapScreen.Drawings.ClearDrawnLinesLocal();
-        mapScreen.Drawings.LoadDrawings(drawings);
-        Log.Debug(
-            $"MapAutoPainter: loaded {drawings.drawings.Sum(player => player.lines.Count)} lines " +
-            $"into the official map drawing system from {imagePath}.");
-        return new MapAutoPaintResult(
-            true,
-            $"已导入 {drawings.drawings.Sum(player => player.lines.Count)} 条线条，来自 {Path.GetFileName(imagePath)}。");
-    }
-
     internal static List<Vector2[]> MapStrokesToNetSpace(
         NMapScreen mapScreen,
         IReadOnlyList<Vector2[]> strokes,
         MapPaintSettings settings)
     {
         return MapToNetSpace(mapScreen, strokes, settings).ToList();
-    }
-
-    private static SerializableMapDrawings BuildDrawingsFromMapped(
-        NMapScreen mapScreen,
-        IReadOnlyList<Vector2[]> mappedStrokes)
-    {
-        var netId = RunManager.Instance.NetService.NetId;
-        var player = FindPlayer(mapScreen, netId);
-        if (player is null)
-        {
-            throw new InvalidOperationException($"MapAutoPainter: could not resolve local player for net id {netId}.");
-        }
-
-        var result = mapScreen.Drawings.GetSerializableMapDrawings();
-        result.drawings.RemoveAll(drawing => drawing.playerId == player.NetId);
-
-        var playerDrawings = new SerializablePlayerMapDrawings
-        {
-            playerId = player.NetId,
-        };
-
-        foreach (var stroke in mappedStrokes)
-        {
-            if (stroke.Length < 2)
-            {
-                continue;
-            }
-
-            playerDrawings.lines.Add(new SerializableMapDrawingLine
-            {
-                isEraser = false,
-                mapPoints = stroke.ToList(),
-            });
-        }
-
-        result.drawings.Add(playerDrawings);
-        return result;
-    }
-
-    private static Player? FindPlayer(NMapScreen mapScreen, ulong netId)
-    {
-        var initializeField = typeof(NMapScreen).GetField("_runState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-        if (initializeField?.GetValue(mapScreen) is IRunState runState)
-        {
-            return runState.Players.FirstOrDefault(player => player.NetId == netId);
-        }
-
-        return null;
     }
 
     internal static IEnumerable<Vector2[]> MapToNetSpace(
